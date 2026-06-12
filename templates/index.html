@@ -242,6 +242,110 @@
     font-style: italic;
   }
 
+  /* Video player */
+  .player-section {
+    padding: 16px 24px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .player-wrap {
+    position: relative;
+    width: 100%;
+    background: #000;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    overflow: hidden;
+    aspect-ratio: 16 / 9;
+  }
+
+  .player-wrap video {
+    width: 100%;
+    height: 100%;
+    display: block;
+    background: #000;
+  }
+
+  .player-overlay {
+    position: absolute;
+    inset: 0;
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    background: rgba(0, 0, 0, 0.55);
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    text-align: center;
+    padding: 16px;
+  }
+  .player-overlay.show { display: flex; }
+  .player-overlay.error { color: var(--error); }
+  .player-overlay .spinner {
+    width: 22px; height: 22px;
+    border-width: 3px;
+  }
+
+  .player-placeholder {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+
+  .player-controls {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+
+  .player-btn {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 9px 12px;
+    font-family: var(--mono);
+    font-size: 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .player-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+  .player-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .jump-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+  .jump-row input {
+    flex: 1;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12px;
+    padding: 8px 12px;
+    border-radius: 4px;
+    outline: none;
+  }
+  .jump-row input:focus { border-color: var(--accent); }
+  .jump-row label {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text-muted);
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+
   /* Form */
   .form-section {
     padding: 24px;
@@ -560,6 +664,28 @@
       <div class="selected-name empty" id="selected-display">— Datei auswählen —</div>
     </div>
 
+    <div class="player-section">
+      <div class="player-wrap">
+        <video id="preview-video" controls preload="auto"></video>
+        <div class="player-placeholder" id="player-placeholder">Keine Vorschau</div>
+        <div class="player-overlay" id="player-overlay">
+          <div class="spinner"></div>
+          <span id="player-overlay-text">Transkodiere Vorschau…</span>
+        </div>
+      </div>
+
+      <div class="player-controls">
+        <button class="player-btn" id="set-start-btn" onclick="setTimeFromPlayer('start')" disabled>⏺ Start setzen</button>
+        <button class="player-btn" id="set-end-btn" onclick="setTimeFromPlayer('end')" disabled>⏹ Ende setzen</button>
+      </div>
+
+      <div class="jump-row">
+        <label>Jump</label>
+        <input type="text" id="jump-time" placeholder="00:00:00" disabled>
+        <button class="player-btn" id="jump-btn" onclick="jumpTo()" disabled>↪ Springen</button>
+      </div>
+    </div>
+
     <div class="form-section">
       <div class="time-row">
         <div class="field">
@@ -603,6 +729,7 @@
   let currentPath = null;
   let selectedFile = null;
   let pollInterval = null;
+  let segmentStart = 0; // source-seconds offset of the current preview segment
 
   function formatSize(bytes) {
     if (bytes > 1e9) return (bytes / 1e9).toFixed(1) + ' GB';
@@ -682,6 +809,8 @@
     updateOutputPreview();
     document.getElementById('create-btn').disabled = false;
     clearStatus();
+
+    loadPreview(path, 0);
   }
 
   function updateOutputPreview() {
@@ -757,6 +886,92 @@
         document.getElementById('create-btn').disabled = false;
       }
     }, 800);
+  }
+
+  // --- Video preview player ---
+  function fmtTime(totalSec) {
+    totalSec = Math.max(0, Math.floor(totalSec));
+    const h = Math.floor(totalSec / 3600);
+    const m = Math.floor((totalSec % 3600) / 60);
+    const s = totalSec % 60;
+    return [h, m, s].map(n => String(n).padStart(2, '0')).join(':');
+  }
+
+  function parseTime(str) {
+    if (!str) return null;
+    const parts = str.trim().split(':');
+    if (parts.length === 0 || parts.length > 3) return null;
+    let sec = 0;
+    for (const p of parts) {
+      if (p === '' || isNaN(Number(p))) return null;
+      sec = sec * 60 + Number(p);
+    }
+    return sec;
+  }
+
+  function showPlayerOverlay(text, isError = false) {
+    const ov = document.getElementById('player-overlay');
+    document.getElementById('player-overlay-text').textContent = text;
+    ov.classList.toggle('error', isError);
+    ov.classList.add('show');
+  }
+
+  function hidePlayerOverlay() {
+    document.getElementById('player-overlay').classList.remove('show');
+  }
+
+  function setPlayerControlsEnabled(on) {
+    ['set-start-btn', 'set-end-btn', 'jump-time', 'jump-btn']
+      .forEach(id => document.getElementById(id).disabled = !on);
+  }
+
+  function loadPreview(path, startSec) {
+    segmentStart = Math.max(0, Math.floor(startSec || 0));
+    const video = document.getElementById('preview-video');
+    document.getElementById('player-placeholder').style.display = 'none';
+    showPlayerOverlay('Transkodiere Vorschau…');
+    video.src = `/api/preview?path=${encodeURIComponent(path)}&start=${segmentStart}`;
+    video.load();
+    setPlayerControlsEnabled(true);
+    document.getElementById('jump-time').value = fmtTime(segmentStart);
+  }
+
+  function resetPlayer() {
+    const video = document.getElementById('preview-video');
+    video.removeAttribute('src');
+    video.load();
+    segmentStart = 0;
+    document.getElementById('player-placeholder').style.display = 'flex';
+    hidePlayerOverlay();
+    setPlayerControlsEnabled(false);
+    document.getElementById('jump-time').value = '';
+  }
+
+  function setTimeFromPlayer(which) {
+    const video = document.getElementById('preview-video');
+    if (isNaN(video.currentTime)) return;
+    // currentTime is relative to the transcoded segment → add its source offset
+    const absolute = segmentStart + video.currentTime;
+    document.getElementById(which === 'start' ? 'start-time' : 'end-time').value = fmtTime(absolute);
+  }
+
+  function jumpTo() {
+    if (!selectedFile) return;
+    const sec = parseTime(document.getElementById('jump-time').value);
+    if (sec === null) { alert('Ungültige Zeit – Format HH:MM:SS'); return; }
+    loadPreview(selectedFile, sec);
+  }
+
+  function initPlayer() {
+    const v = document.getElementById('preview-video');
+    v.addEventListener('loadstart', () => { if (v.getAttribute('src')) showPlayerOverlay('Transkodiere Vorschau…'); });
+    v.addEventListener('waiting', () => { if (v.getAttribute('src')) showPlayerOverlay('Puffert…'); });
+    v.addEventListener('canplay', hidePlayerOverlay);
+    v.addEventListener('playing', hidePlayerOverlay);
+    v.addEventListener('error', () => {
+      if (!v.getAttribute('src')) return; // ignore reset-triggered errors
+      showPlayerOverlay('Vorschau nicht abspielbar – Zeiten manuell eingeben', true);
+    });
   }
 
   // --- Library homepage ---
@@ -855,11 +1070,13 @@
     document.getElementById('output-preview').textContent = '— Datei auswählen —';
     document.getElementById('create-btn').disabled = true;
     clearStatus();
+    resetPlayer();
     setView('editor-view');
     browse(path);
   }
 
   // Init
+  initPlayer();
   loadLibrary();
 </script>
 </body>

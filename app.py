@@ -2,7 +2,7 @@ import os
 import subprocess
 import json
 from urllib.parse import quote
-from flask import Flask, request, jsonify, render_template, Response, send_file, abort
+from flask import Flask, request, jsonify, render_template, Response, send_file, abort, stream_with_context
 import threading
 import uuid
 import time
@@ -92,6 +92,54 @@ def image():
     if os.path.splitext(path)[1].lower() not in IMAGE_EXTENSIONS:
         abort(403)
     return send_file(path)
+
+
+PREVIEW_DURATION = 180  # seconds per transcoded preview segment
+
+
+@app.route("/api/preview")
+def preview():
+    """Transcode a short segment to browser-friendly H.264/AAC MP4 on the fly."""
+    path = safe_path(request.args.get("path", ""))
+    if not path or not os.path.isfile(path) or not is_video(path):
+        abort(404)
+
+    try:
+        start = max(0.0, float(request.args.get("start", 0)))
+    except (TypeError, ValueError):
+        start = 0.0
+
+    cmd = [
+        "ffmpeg",
+        "-ss", str(start),
+        "-t", str(PREVIEW_DURATION),
+        "-i", path,
+        "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28",
+        "-c:a", "aac", "-b:a", "128k",
+        "-movflags", "frag_keyframe+empty_moov",
+        "-f", "mp4",
+        "pipe:1",
+    ]
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+
+    def generate():
+        try:
+            while True:
+                chunk = proc.stdout.read(64 * 1024)
+                if not chunk:
+                    break
+                yield chunk
+        finally:
+            # Client disconnected or stream finished — tear down ffmpeg
+            if proc.poll() is None:
+                proc.kill()
+            try:
+                proc.stdout.close()
+            except Exception:
+                pass
+            proc.wait()
+
+    return Response(stream_with_context(generate()), mimetype="video/mp4")
 
 
 @app.route("/api/browse")
