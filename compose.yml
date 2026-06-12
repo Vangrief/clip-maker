@@ -9,7 +9,7 @@ services:
     volumes:
       # Dein Medien-Ordner — muss exakt gleich wie in Jellyfin gemountet sein
       - type: bind
-        source: /mnt/user/media
+        source: /mnt/user/data/media
         target: /media
         bind:
           propagation: shared

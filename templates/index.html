@@ -394,16 +394,146 @@
     background: var(--border);
     margin: 4px 0;
   }
+
+  /* View switching */
+  .view { display: none; flex: 1; flex-direction: column; min-height: 0; }
+  .view.active { display: flex; }
+  #editor-view.active { display: grid; }
+
+  .logo { cursor: pointer; }
+
+  .back-link {
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    padding: 5px 12px;
+    border-radius: 4px;
+    font-family: var(--mono);
+    font-size: 11px;
+    cursor: pointer;
+    transition: all 0.15s;
+    margin-left: auto;
+  }
+  .back-link:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* Library browser */
+  .library {
+    flex: 1;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+    padding: 28px 32px 40px;
+  }
+  .library::-webkit-scrollbar { width: 6px; }
+  .library::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+  .search-bar {
+    position: sticky;
+    top: -28px;
+    margin: -28px -32px 24px;
+    padding: 18px 32px;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
+    z-index: 5;
+  }
+  .search-bar input {
+    width: 100%;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 14px;
+    padding: 11px 16px;
+    border-radius: 4px;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+  .search-bar input:focus { border-color: var(--accent); }
+  .search-bar input::placeholder { color: var(--text-muted); }
+
+  .category { margin-bottom: 36px; }
+  .category-title {
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-bottom: 16px;
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+  .category-title .count { color: var(--text-muted); font-size: 11px; font-weight: 400; }
+
+  .tile-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 18px;
+  }
+
+  .tile {
+    cursor: pointer;
+    border-radius: 6px;
+    overflow: hidden;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    transition: border-color 0.15s, transform 0.15s;
+    display: flex;
+    flex-direction: column;
+  }
+  .tile:hover {
+    border-color: var(--accent);
+    transform: translateY(-3px);
+  }
+
+  .tile-poster {
+    aspect-ratio: 2 / 3;
+    background: var(--surface2);
+    background-size: cover;
+    background-position: center;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .tile-poster.placeholder { font-size: 32px; color: var(--text-muted); }
+
+  .tile-name {
+    padding: 10px 12px;
+    font-size: 12px;
+    line-height: 1.4;
+    color: var(--text);
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .library .empty-state { padding: 60px 20px; }
 </style>
 </head>
 <body>
 
 <header>
-  <div class="logo">clip<span>_</span>maker</div>
+  <div class="logo" onclick="showLibrary()">clip<span>_</span>maker</div>
   <div class="tagline">Jellyfin Extra-Clips // ffmpeg lossless</div>
+  <button class="back-link" id="back-link" onclick="showLibrary()" style="display:none">← Bibliothek</button>
 </header>
 
-<main>
+<!-- Library homepage -->
+<div class="view active" id="library-view">
+  <div class="library">
+    <div class="search-bar">
+      <input type="text" id="search" placeholder="Suchen..." oninput="filterLibrary()" autocomplete="off">
+    </div>
+    <div id="library-content">
+      <div class="empty-state">Lade Bibliothek...</div>
+    </div>
+  </div>
+</div>
+
+<!-- Clip editor -->
+<main class="view" id="editor-view">
   <!-- Left: File Browser -->
   <div class="panel">
     <div class="panel-header">
@@ -629,8 +759,108 @@
     }, 800);
   }
 
+  // --- Library homepage ---
+  let libraryData = [];
+
+  async function loadLibrary() {
+    const content = document.getElementById('library-content');
+    try {
+      const res = await fetch('/api/library');
+      const data = await res.json();
+      libraryData = data.categories || [];
+    } catch (e) {
+      content.innerHTML = '<div class="empty-state">Bibliothek konnte nicht geladen werden</div>';
+      return;
+    }
+    renderLibrary(libraryData);
+  }
+
+  function renderLibrary(categories) {
+    const content = document.getElementById('library-content');
+    const visible = categories.filter(c => c.items.length > 0);
+
+    if (visible.length === 0) {
+      content.innerHTML = '<div class="empty-state">Keine Einträge gefunden</div>';
+      return;
+    }
+
+    content.innerHTML = '';
+    visible.forEach(cat => {
+      const section = document.createElement('div');
+      section.className = 'category';
+
+      const title = document.createElement('div');
+      title.className = 'category-title';
+      title.innerHTML = `${cat.name} <span class="count">${cat.items.length}</span>`;
+      section.appendChild(title);
+
+      const grid = document.createElement('div');
+      grid.className = 'tile-grid';
+
+      cat.items.forEach(item => {
+        const tile = document.createElement('div');
+        tile.className = 'tile';
+        tile.title = item.name;
+        tile.onclick = () => openFolder(item.path);
+
+        const poster = document.createElement('div');
+        if (item.image) {
+          poster.className = 'tile-poster';
+          poster.style.backgroundImage = `url("${item.image}")`;
+        } else {
+          poster.className = 'tile-poster placeholder';
+          poster.textContent = '🎬';
+        }
+
+        const name = document.createElement('div');
+        name.className = 'tile-name';
+        name.textContent = item.name;
+
+        tile.appendChild(poster);
+        tile.appendChild(name);
+        grid.appendChild(tile);
+      });
+
+      section.appendChild(grid);
+      content.appendChild(section);
+    });
+  }
+
+  function filterLibrary() {
+    const q = document.getElementById('search').value.trim().toLowerCase();
+    if (!q) { renderLibrary(libraryData); return; }
+    const filtered = libraryData.map(cat => ({
+      ...cat,
+      items: cat.items.filter(i => i.name.toLowerCase().includes(q)),
+    }));
+    renderLibrary(filtered);
+  }
+
+  function setView(viewId) {
+    document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+    document.getElementById(viewId).classList.add('active');
+    document.getElementById('back-link').style.display =
+      viewId === 'editor-view' ? 'block' : 'none';
+  }
+
+  function showLibrary() {
+    setView('library-view');
+  }
+
+  function openFolder(path) {
+    // Reset editor state, then drill into the selected folder
+    selectedFile = null;
+    document.getElementById('selected-display').textContent = '— Datei auswählen —';
+    document.getElementById('selected-display').classList.add('empty');
+    document.getElementById('output-preview').textContent = '— Datei auswählen —';
+    document.getElementById('create-btn').disabled = true;
+    clearStatus();
+    setView('editor-view');
+    browse(path);
+  }
+
   // Init
-  browse('/media');
+  loadLibrary();
 </script>
 </body>
 </html>

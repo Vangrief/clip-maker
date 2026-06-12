@@ -1,7 +1,8 @@
 import os
 import subprocess
 import json
-from flask import Flask, request, jsonify, render_template, Response
+from urllib.parse import quote
+from flask import Flask, request, jsonify, render_template, Response, send_file, abort
 import threading
 import uuid
 import time
@@ -10,6 +11,13 @@ app = Flask(__name__)
 
 MEDIA_ROOT = os.environ.get("MEDIA_ROOT", "/media")
 VIDEO_EXTENSIONS = {".mkv", ".mp4", ".avi", ".mov", ".m4v", ".ts", ".wmv", ".flv", ".webm"}
+IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
+
+# Top-level library categories (subfolders of MEDIA_ROOT)
+LIBRARY_CATEGORIES = ["movies", "tvshows", "anime"]
+
+# Primary-image filename priority (first match wins)
+POSTER_NAMES = ["folder.jpg", "folder.png", "poster.jpg", "poster.png"]
 
 # Store job progress
 jobs = {}
@@ -19,19 +27,76 @@ def is_video(filename):
     return os.path.splitext(filename)[1].lower() in VIDEO_EXTENSIONS
 
 
+def safe_path(path):
+    """Normalize a path and ensure it stays within MEDIA_ROOT. Returns None if outside."""
+    if not path:
+        return None
+    full = os.path.normpath(path)
+    root = os.path.normpath(MEDIA_ROOT)
+    if full != root and not full.startswith(root + os.sep):
+        return None
+    return full
+
+
+def find_poster(folder):
+    """Return the path to the primary image for a folder, or None."""
+    for name in POSTER_NAMES:
+        candidate = os.path.join(folder, name)
+        if os.path.isfile(candidate):
+            return candidate
+    return None
+
+
 @app.route("/")
 def index():
     return render_template("index.html")
 
 
+@app.route("/api/library")
+def library():
+    """List top-level categories and their entries with primary images."""
+    categories = []
+    for cat in LIBRARY_CATEGORIES:
+        cat_dir = os.path.join(MEDIA_ROOT, cat)
+        if not os.path.isdir(cat_dir):
+            continue
+
+        items = []
+        try:
+            names = sorted(os.listdir(cat_dir), key=str.lower)
+        except (PermissionError, FileNotFoundError):
+            continue
+
+        for name in names:
+            full = os.path.join(cat_dir, name)
+            if not os.path.isdir(full):
+                continue
+            poster = find_poster(full)
+            items.append({
+                "name": name,
+                "path": full,
+                "image": f"/api/image?path={quote(poster)}" if poster else None,
+            })
+
+        categories.append({"name": cat, "count": len(items), "items": items})
+
+    return jsonify({"categories": categories})
+
+
+@app.route("/api/image")
+def image():
+    """Serve a poster image from within MEDIA_ROOT."""
+    path = safe_path(request.args.get("path", ""))
+    if not path or not os.path.isfile(path):
+        abort(404)
+    if os.path.splitext(path)[1].lower() not in IMAGE_EXTENSIONS:
+        abort(403)
+    return send_file(path)
+
+
 @app.route("/api/browse")
 def browse():
-    path = request.args.get("path", MEDIA_ROOT)
-    path = os.path.normpath(path)
-
-    # Security: don't allow traversal outside MEDIA_ROOT
-    if not path.startswith(MEDIA_ROOT):
-        path = MEDIA_ROOT
+    path = safe_path(request.args.get("path", MEDIA_ROOT)) or MEDIA_ROOT
 
     if not os.path.isdir(path):
         return jsonify({"error": "Not a directory"}), 400
