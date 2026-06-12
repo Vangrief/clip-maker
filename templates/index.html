@@ -1,0 +1,636 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Clip Maker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0d0d0d;
+    --surface: #141414;
+    --surface2: #1c1c1c;
+    --border: #2a2a2a;
+    --border-hover: #3d3d3d;
+    --accent: #e8ff47;
+    --accent-dim: #b8cc30;
+    --text: #e0e0e0;
+    --text-muted: #666;
+    --text-dim: #999;
+    --error: #ff4d4d;
+    --success: #47ff8a;
+    --dir-color: #60a5fa;
+    --video-color: #a78bfa;
+    --mono: 'IBM Plex Mono', monospace;
+    --sans: 'IBM Plex Sans', sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* Header */
+  header {
+    border-bottom: 1px solid var(--border);
+    padding: 18px 32px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    background: var(--surface);
+  }
+
+  .logo {
+    font-family: var(--mono);
+    font-size: 18px;
+    font-weight: 600;
+    letter-spacing: -0.5px;
+    color: var(--accent);
+  }
+
+  .logo span {
+    color: var(--text-muted);
+  }
+
+  .tagline {
+    font-size: 12px;
+    color: var(--text-muted);
+    font-family: var(--mono);
+    border-left: 1px solid var(--border);
+    padding-left: 16px;
+    margin-left: 4px;
+  }
+
+  /* Layout */
+  main {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0;
+    height: calc(100vh - 57px);
+  }
+
+  /* Panel */
+  .panel {
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .panel:last-child { border-right: none; }
+
+  .panel-header {
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--border);
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-muted);
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    background: var(--surface);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .panel-header .dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+  }
+
+  /* File Browser */
+  .breadcrumb {
+    padding: 10px 20px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-muted);
+    border-bottom: 1px solid var(--border);
+    background: var(--surface2);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .breadcrumb .back-btn {
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-family: var(--mono);
+    font-size: 11px;
+    cursor: pointer;
+    transition: all 0.15s;
+    flex-shrink: 0;
+  }
+
+  .breadcrumb .back-btn:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
+  .file-list {
+    flex: 1;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+
+  .file-list::-webkit-scrollbar { width: 4px; }
+  .file-list::-webkit-scrollbar-track { background: transparent; }
+  .file-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  .file-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 20px;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+    transition: background 0.1s;
+    font-size: 13px;
+  }
+
+  .file-item:hover { background: var(--surface2); }
+
+  .file-item.selected {
+    background: rgba(232, 255, 71, 0.06);
+    border-left: 2px solid var(--accent);
+    padding-left: 18px;
+  }
+
+  .file-icon {
+    font-size: 14px;
+    flex-shrink: 0;
+    width: 18px;
+    text-align: center;
+  }
+
+  .file-name {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .file-item[data-type="dir"] .file-name { color: var(--dir-color); }
+  .file-item[data-type="video"] .file-name { color: var(--text); }
+
+  .file-size {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text-muted);
+    flex-shrink: 0;
+  }
+
+  .empty-state {
+    padding: 40px 20px;
+    text-align: center;
+    color: var(--text-muted);
+    font-family: var(--mono);
+    font-size: 12px;
+  }
+
+  /* Right panel - Clip editor */
+  .clip-panel {
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+
+  .selected-file-info {
+    padding: 16px 24px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface2);
+  }
+
+  .selected-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text-muted);
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    margin-bottom: 6px;
+  }
+
+  .selected-name {
+    font-size: 13px;
+    color: var(--accent);
+    font-family: var(--mono);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .selected-name.empty {
+    color: var(--text-muted);
+    font-style: italic;
+  }
+
+  /* Form */
+  .form-section {
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+
+  .field {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .field label {
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: var(--text-muted);
+  }
+
+  .field input {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 14px;
+    padding: 10px 14px;
+    border-radius: 4px;
+    outline: none;
+    transition: border-color 0.15s;
+    width: 100%;
+  }
+
+  .field input:focus {
+    border-color: var(--accent);
+  }
+
+  .field input::placeholder {
+    color: var(--text-muted);
+  }
+
+  .time-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+
+  .hint {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text-muted);
+  }
+
+  /* Output preview */
+  .output-preview {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 12px 14px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-muted);
+    line-height: 1.6;
+  }
+
+  .output-preview .path {
+    color: var(--success);
+    word-break: break-all;
+  }
+
+  /* Button */
+  .create-btn {
+    background: var(--accent);
+    color: #0d0d0d;
+    border: none;
+    padding: 14px 24px;
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.15s;
+    text-transform: uppercase;
+  }
+
+  .create-btn:hover:not(:disabled) {
+    background: var(--accent-dim);
+    transform: translateY(-1px);
+  }
+
+  .create-btn:disabled {
+    background: var(--border);
+    color: var(--text-muted);
+    cursor: not-allowed;
+    transform: none;
+  }
+
+  /* Status */
+  .status-box {
+    margin-top: 4px;
+    padding: 12px 14px;
+    border-radius: 4px;
+    font-family: var(--mono);
+    font-size: 12px;
+    display: none;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .status-box.running {
+    display: flex;
+    background: rgba(232, 255, 71, 0.07);
+    border: 1px solid rgba(232, 255, 71, 0.2);
+    color: var(--accent);
+  }
+
+  .status-box.done {
+    display: flex;
+    background: rgba(71, 255, 138, 0.07);
+    border: 1px solid rgba(71, 255, 138, 0.2);
+    color: var(--success);
+  }
+
+  .status-box.error {
+    display: flex;
+    background: rgba(255, 77, 77, 0.07);
+    border: 1px solid rgba(255, 77, 77, 0.2);
+    color: var(--error);
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .spinner {
+    width: 12px; height: 12px;
+    border: 2px solid rgba(232, 255, 71, 0.2);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    flex-shrink: 0;
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .divider {
+    height: 1px;
+    background: var(--border);
+    margin: 4px 0;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">clip<span>_</span>maker</div>
+  <div class="tagline">Jellyfin Extra-Clips // ffmpeg lossless</div>
+</header>
+
+<main>
+  <!-- Left: File Browser -->
+  <div class="panel">
+    <div class="panel-header">
+      <div class="dot"></div>
+      Mediendateien
+    </div>
+    <div class="breadcrumb" id="breadcrumb">
+      <span id="breadcrumb-path">/media</span>
+    </div>
+    <div class="file-list" id="file-list">
+      <div class="empty-state">Lade...</div>
+    </div>
+  </div>
+
+  <!-- Right: Clip Editor -->
+  <div class="panel clip-panel">
+    <div class="panel-header">
+      <div class="dot"></div>
+      Clip erstellen
+    </div>
+
+    <div class="selected-file-info">
+      <div class="selected-label">Quelldatei</div>
+      <div class="selected-name empty" id="selected-display">— Datei auswählen —</div>
+    </div>
+
+    <div class="form-section">
+      <div class="time-row">
+        <div class="field">
+          <label>Start</label>
+          <input type="text" id="start-time" placeholder="00:00:00" value="00:00:00">
+        </div>
+        <div class="field">
+          <label>Ende</label>
+          <input type="text" id="end-time" placeholder="00:01:00">
+        </div>
+      </div>
+      <div class="hint">Format: HH:MM:SS oder HH:MM:SS.mmm</div>
+
+      <div class="divider"></div>
+
+      <div class="field">
+        <label>Clip-Name</label>
+        <input type="text" id="clip-name" placeholder="Mein Clip">
+      </div>
+
+      <div class="field">
+        <label>Ausgabepfad</label>
+        <div class="output-preview">
+          <span id="output-preview" class="path">— Datei auswählen —</span>
+        </div>
+      </div>
+
+      <button class="create-btn" id="create-btn" disabled onclick="createClip()">
+        ▶ Clip erstellen
+      </button>
+
+      <div class="status-box" id="status-box">
+        <div class="spinner" id="status-spinner"></div>
+        <span id="status-text"></span>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script>
+  let currentPath = null;
+  let selectedFile = null;
+  let pollInterval = null;
+
+  function formatSize(bytes) {
+    if (bytes > 1e9) return (bytes / 1e9).toFixed(1) + ' GB';
+    if (bytes > 1e6) return (bytes / 1e6).toFixed(0) + ' MB';
+    return (bytes / 1e3).toFixed(0) + ' KB';
+  }
+
+  async function browse(path) {
+    const res = await fetch(`/api/browse?path=${encodeURIComponent(path)}`);
+    const data = await res.json();
+    if (data.error) { alert(data.error); return; }
+
+    currentPath = data.current;
+
+    // Breadcrumb
+    const bc = document.getElementById('breadcrumb');
+    const bcp = document.getElementById('breadcrumb-path');
+    bcp.textContent = data.current;
+
+    if (data.parent) {
+      bc.innerHTML = '';
+      const btn = document.createElement('button');
+      btn.className = 'back-btn';
+      btn.textContent = '← zurück';
+      btn.onclick = () => browse(data.parent);
+      bc.appendChild(btn);
+      const span = document.createElement('span');
+      span.id = 'breadcrumb-path';
+      span.textContent = data.current;
+      bc.appendChild(span);
+    } else {
+      bc.innerHTML = `<span id="breadcrumb-path">${data.current}</span>`;
+    }
+
+    // File list
+    const list = document.getElementById('file-list');
+    list.innerHTML = '';
+
+    if (data.entries.length === 0) {
+      list.innerHTML = '<div class="empty-state">Keine Dateien gefunden</div>';
+      return;
+    }
+
+    data.entries.forEach(entry => {
+      const item = document.createElement('div');
+      item.className = 'file-item';
+      item.dataset.type = entry.type;
+      if (selectedFile === entry.path) item.classList.add('selected');
+
+      const icon = entry.type === 'dir' ? '📁' : '🎬';
+      const sizeStr = entry.type === 'video' ? formatSize(entry.size) : '';
+
+      item.innerHTML = `
+        <span class="file-icon">${icon}</span>
+        <span class="file-name">${entry.name}</span>
+        ${sizeStr ? `<span class="file-size">${sizeStr}</span>` : ''}
+      `;
+
+      if (entry.type === 'dir') {
+        item.onclick = () => browse(entry.path);
+      } else {
+        item.onclick = () => selectFile(entry.path, entry.name, item);
+      }
+
+      list.appendChild(item);
+    });
+  }
+
+  function selectFile(path, name, el) {
+    document.querySelectorAll('.file-item').forEach(i => i.classList.remove('selected'));
+    el.classList.add('selected');
+    selectedFile = path;
+
+    document.getElementById('selected-display').textContent = name;
+    document.getElementById('selected-display').classList.remove('empty');
+
+    updateOutputPreview();
+    document.getElementById('create-btn').disabled = false;
+    clearStatus();
+  }
+
+  function updateOutputPreview() {
+    if (!selectedFile) return;
+    const name = document.getElementById('clip-name').value.trim() || 'clip';
+    const dir = selectedFile.substring(0, selectedFile.lastIndexOf('/'));
+    const ext = selectedFile.substring(selectedFile.lastIndexOf('.'));
+    document.getElementById('output-preview').textContent = `${dir}/clips/${name}${ext}`;
+  }
+
+  document.getElementById('clip-name').addEventListener('input', updateOutputPreview);
+
+  function clearStatus() {
+    const box = document.getElementById('status-box');
+    box.className = 'status-box';
+    box.innerHTML = `<div class="spinner" id="status-spinner"></div><span id="status-text"></span>`;
+  }
+
+  function showStatus(type, text, extra) {
+    const box = document.getElementById('status-box');
+    box.className = `status-box ${type}`;
+    if (type === 'running') {
+      box.innerHTML = `<div class="spinner"></div><span>${text}</span>`;
+    } else if (type === 'done') {
+      box.innerHTML = `<span>✓ ${text}</span>`;
+    } else {
+      box.innerHTML = `<span>✗ ${text}</span>${extra ? `<span style="font-size:10px;opacity:0.7;margin-top:4px">${extra}</span>` : ''}`;
+    }
+  }
+
+  async function createClip() {
+    const start = document.getElementById('start-time').value.trim();
+    const end = document.getElementById('end-time').value.trim();
+    const name = document.getElementById('clip-name').value.trim();
+
+    if (!selectedFile) return alert('Keine Datei ausgewählt');
+    if (!end) return alert('Endzeit angeben');
+    if (!name) return alert('Clip-Name angeben');
+
+    document.getElementById('create-btn').disabled = true;
+    showStatus('running', 'Clip wird erstellt...');
+
+    const res = await fetch('/api/clip', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ source: selectedFile, start, end, name })
+    });
+    const data = await res.json();
+
+    if (data.error) {
+      showStatus('error', 'Fehler', data.error);
+      document.getElementById('create-btn').disabled = false;
+      return;
+    }
+
+    pollJob(data.job_id);
+  }
+
+  function pollJob(jobId) {
+    if (pollInterval) clearInterval(pollInterval);
+    pollInterval = setInterval(async () => {
+      const res = await fetch(`/api/job/${jobId}`);
+      const job = await res.json();
+
+      if (job.status === 'done') {
+        clearInterval(pollInterval);
+        const size = job.size ? ` (${formatSize(job.size)})` : '';
+        showStatus('done', `Clip gespeichert${size}`);
+        document.getElementById('create-btn').disabled = false;
+      } else if (job.status === 'error') {
+        clearInterval(pollInterval);
+        showStatus('error', 'ffmpeg-Fehler', job.error);
+        document.getElementById('create-btn').disabled = false;
+      }
+    }, 800);
+  }
+
+  // Init
+  browse('/media');
+</script>
+</body>
+</html>

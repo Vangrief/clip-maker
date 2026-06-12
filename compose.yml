@@ -1,0 +1,18 @@
+services:
+  clip-maker:
+    build: .
+    # Oder fertiges Image wenn du es selbst baust:
+    # image: clip-maker:latest
+    container_name: clip-maker
+    ports:
+      - "5001:5000"
+    volumes:
+      # Dein Medien-Ordner — muss exakt gleich wie in Jellyfin gemountet sein
+      - type: bind
+        source: /mnt/user/media
+        target: /media
+        bind:
+          propagation: shared
+    environment:
+      - MEDIA_ROOT=/media
+    restart: unless-stopped
