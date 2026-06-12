@@ -1,8 +1,10 @@
 import os
+import io
 import subprocess
 import json
+import tempfile
 from urllib.parse import quote
-from flask import Flask, request, jsonify, render_template, Response, send_file, abort, stream_with_context
+from flask import Flask, request, jsonify, render_template, Response, send_file, abort
 import threading
 import uuid
 import time
@@ -99,47 +101,62 @@ PREVIEW_DURATION = 180  # seconds per transcoded preview segment
 
 @app.route("/api/preview")
 def preview():
-    """Transcode a short segment to browser-friendly H.264/AAC MP4 on the fly."""
+    """Transcode a short segment to a browser-friendly H.264/AAC MP4.
+
+    Browsers need the complete moov atom before playback, so we transcode to a
+    temp file with -movflags +faststart (moov at the front of the file). We then
+    read the finished file into memory, delete it immediately, and serve the
+    bytes. Reading-then-deleting avoids leaking temp files: response-close hooks
+    (call_on_close) are skipped by the WSGI file_wrapper fast-path, and unlinking
+    an open file is unreliable on non-POSIX hosts.
+    """
     path = safe_path(request.args.get("path", ""))
     if not path or not os.path.isfile(path) or not is_video(path):
         abort(404)
 
     try:
-        start = max(0.0, float(request.args.get("start", 0)))
+        start = str(max(0.0, float(request.args.get("start", 0))))
     except (TypeError, ValueError):
-        start = 0.0
+        start = "0"
+
+    tmp = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False)
+    tmp.close()
 
     cmd = [
-        "ffmpeg",
-        "-ss", str(start),
+        "ffmpeg", "-y",
+        "-ss", start,
         "-t", str(PREVIEW_DURATION),
         "-i", path,
         "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28",
         "-c:a", "aac", "-b:a", "128k",
-        "-movflags", "frag_keyframe+empty_moov",
+        "-movflags", "+faststart",
         "-f", "mp4",
-        "pipe:1",
+        tmp.name,
     ]
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
 
-    def generate():
-        try:
-            while True:
-                chunk = proc.stdout.read(64 * 1024)
-                if not chunk:
-                    break
-                yield chunk
-        finally:
-            # Client disconnected or stream finished — tear down ffmpeg
-            if proc.poll() is None:
-                proc.kill()
-            try:
-                proc.stdout.close()
-            except Exception:
-                pass
-            proc.wait()
+    try:
+        result = subprocess.run(cmd, stderr=subprocess.DEVNULL)
+        if result.returncode != 0:
+            abort(500)
+        with open(tmp.name, "rb") as f:
+            data = f.read()
+    finally:
+        _safe_unlink(tmp.name)
 
-    return Response(stream_with_context(generate()), mimetype="video/mp4")
+    return send_file(
+        io.BytesIO(data),
+        mimetype="video/mp4",
+        as_attachment=False,
+        download_name="preview.mp4",
+        conditional=True,
+    )
+
+
+def _safe_unlink(path):
+    try:
+        os.unlink(path)
+    except OSError:
+        pass
 
 
 @app.route("/api/browse")
