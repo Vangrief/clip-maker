@@ -242,6 +242,35 @@
     font-style: italic;
   }
 
+  /* Audio track selector */
+  .audio-field {
+    margin-top: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .audio-field label {
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--text-muted);
+  }
+  .audio-field select {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12px;
+    padding: 8px 12px;
+    border-radius: 4px;
+    outline: none;
+    cursor: pointer;
+    transition: border-color 0.15s;
+  }
+  .audio-field select:focus { border-color: var(--accent); }
+
   /* Video player */
   .player-section {
     padding: 16px 24px;
@@ -662,6 +691,11 @@
     <div class="selected-file-info">
       <div class="selected-label">Quelldatei</div>
       <div class="selected-name empty" id="selected-display">— Datei auswählen —</div>
+
+      <div class="audio-field" id="audio-field" style="display:none">
+        <label>🔊 Audiotrack</label>
+        <select id="audio-select" onchange="onAudioChange()"></select>
+      </div>
     </div>
 
     <div class="player-section">
@@ -730,6 +764,8 @@
   let selectedFile = null;
   let pollInterval = null;
   let segmentStart = 0; // source-seconds offset of the current preview segment
+  let audioStreams = [];
+  let selectedAudioIndex = null; // absolute stream index of chosen audio track
 
   function formatSize(bytes) {
     if (bytes > 1e9) return (bytes / 1e9).toFixed(1) + ' GB';
@@ -810,7 +846,9 @@
     document.getElementById('create-btn').disabled = false;
     clearStatus();
 
+    selectedAudioIndex = null; // reset before first preview (server uses first audio)
     loadPreview(path, 0);
+    loadAudioStreams(path);
   }
 
   function updateOutputPreview() {
@@ -856,7 +894,7 @@
     const res = await fetch('/api/clip', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ source: selectedFile, start, end, name })
+      body: JSON.stringify({ source: selectedFile, start, end, name, audio_index: selectedAudioIndex })
     });
     const data = await res.json();
 
@@ -930,7 +968,9 @@
     const video = document.getElementById('preview-video');
     document.getElementById('player-placeholder').style.display = 'none';
     showPlayerOverlay('Transkodiere Vorschau…');
-    video.src = `/api/preview?path=${encodeURIComponent(path)}&start=${segmentStart}`;
+    let url = `/api/preview?path=${encodeURIComponent(path)}&start=${segmentStart}`;
+    if (selectedAudioIndex !== null) url += `&audio_index=${selectedAudioIndex}`;
+    video.src = url;
     video.load();
     setPlayerControlsEnabled(true);
     document.getElementById('jump-time').value = fmtTime(segmentStart);
@@ -945,6 +985,63 @@
     hidePlayerOverlay();
     setPlayerControlsEnabled(false);
     document.getElementById('jump-time').value = '';
+    audioStreams = [];
+    selectedAudioIndex = null;
+    document.getElementById('audio-field').style.display = 'none';
+    document.getElementById('audio-select').innerHTML = '';
+  }
+
+  // --- Audio track selection ---
+  const LANG_NAMES = {
+    ger: 'Deutsch', deu: 'Deutsch', eng: 'English', jpn: 'Japanisch',
+    fre: 'Französisch', fra: 'Französisch', spa: 'Spanisch', ita: 'Italienisch',
+    rus: 'Russisch', kor: 'Koreanisch', chi: 'Chinesisch', zho: 'Chinesisch',
+    por: 'Portugiesisch', nld: 'Niederländisch', dut: 'Niederländisch',
+  };
+  const CHANNEL_LAYOUTS = { 1: 'Mono', 2: 'Stereo', 6: '5.1', 8: '7.1' };
+
+  function audioLabel(s) {
+    const lang = LANG_NAMES[s.language]
+      || (s.language && s.language !== 'unknown' ? s.language.toUpperCase() : 'Unbekannt');
+    const codec = (s.codec || '').toUpperCase();
+    const layout = s.layout || CHANNEL_LAYOUTS[s.channels] || (s.channels ? s.channels + 'ch' : '');
+    return [lang, '—', codec, layout].filter(Boolean).join(' ');
+  }
+
+  async function loadAudioStreams(path) {
+    const field = document.getElementById('audio-field');
+    const sel = document.getElementById('audio-select');
+    field.style.display = 'none';
+    sel.innerHTML = '';
+
+    try {
+      const res = await fetch(`/api/audiostreams?path=${encodeURIComponent(path)}`);
+      audioStreams = await res.json();
+    } catch (e) {
+      audioStreams = [];
+      return;
+    }
+    if (!Array.isArray(audioStreams) || audioStreams.length === 0) return;
+
+    // Default to the first track (matches server's 0:a:0 default for the preview)
+    selectedAudioIndex = audioStreams[0].index;
+
+    if (audioStreams.length === 1) return; // single track → no choice needed
+
+    audioStreams.forEach(s => {
+      const opt = document.createElement('option');
+      opt.value = s.index;
+      opt.textContent = audioLabel(s);
+      sel.appendChild(opt);
+    });
+    sel.value = String(selectedAudioIndex);
+    field.style.display = 'flex';
+  }
+
+  function onAudioChange() {
+    const val = document.getElementById('audio-select').value;
+    selectedAudioIndex = val === '' ? null : Number(val);
+    if (selectedFile) loadPreview(selectedFile, segmentStart); // reload at same position
   }
 
   function setTimeFromPlayer(which) {

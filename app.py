@@ -99,6 +99,38 @@ def image():
 PREVIEW_DURATION = 180  # seconds per transcoded preview segment
 
 
+@app.route("/api/audiostreams")
+def audiostreams():
+    """List the audio tracks of a source file via ffprobe."""
+    path = safe_path(request.args.get("path", ""))
+    if not path or not os.path.isfile(path) or not is_video(path):
+        abort(404)
+
+    cmd = [
+        "ffprobe", "-v", "quiet",
+        "-print_format", "json",
+        "-show_streams", "-select_streams", "a",
+        path,
+    ]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        info = json.loads(result.stdout or "{}")
+    except (subprocess.SubprocessError, json.JSONDecodeError, ValueError):
+        return jsonify([])
+
+    tracks = []
+    for s in info.get("streams", []):
+        tags = s.get("tags") or {}
+        tracks.append({
+            "index": s.get("index"),
+            "language": tags.get("language", "unknown"),
+            "codec": s.get("codec_name"),
+            "channels": s.get("channels"),
+            "layout": s.get("channel_layout"),
+        })
+    return jsonify(tracks)
+
+
 @app.route("/api/preview")
 def preview():
     """Transcode a short segment to a browser-friendly H.264/AAC MP4.
@@ -119,6 +151,10 @@ def preview():
     except (TypeError, ValueError):
         start = "0"
 
+    # Audio track selection: explicit absolute stream index, else first audio stream
+    audio_index = request.args.get("audio_index")
+    audio_map = f"0:{audio_index}" if audio_index and audio_index.isdigit() else "0:a:0"
+
     tmp = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False)
     tmp.close()
 
@@ -127,8 +163,13 @@ def preview():
         "-ss", start,
         "-t", str(PREVIEW_DURATION),
         "-i", path,
+        "-map", "0:v:0",
+        "-map", audio_map,
         "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28",
-        "-c:a", "aac", "-b:a", "128k",
+        # Force browser-playable audio: AAC stereo regardless of source codec
+        # (EAC3/DTS/TrueHD aren't natively decodable in browsers).
+        "-af", "aformat=sample_fmts=fltp",
+        "-c:a", "aac", "-b:a", "192k", "-ac", "2",
         "-movflags", "+faststart",
         "-f", "mp4",
         tmp.name,
@@ -194,6 +235,7 @@ def create_clip():
     start = data.get("start", "00:00:00")
     end = data.get("end")
     clip_name = data.get("name", "clip").strip()
+    audio_index = data.get("audio_index")
     job_id = str(uuid.uuid4())
 
     if not source or not os.path.isfile(source):
@@ -214,6 +256,13 @@ def create_clip():
     ext = os.path.splitext(source)[1].lower() or ".mkv"
     output_path = os.path.join(clips_dir, f"{clip_name}{ext}")
 
+    # Audio track selection (optional). If a specific track is chosen, keep only
+    # the first video stream + that audio track; otherwise keep all streams.
+    if audio_index is not None and str(audio_index).strip().isdigit():
+        map_args = ["-map", "0:v:0", "-map", f"0:{int(audio_index)}"]
+    else:
+        map_args = ["-map", "0"]
+
     jobs[job_id] = {"status": "running", "output": output_path}
 
     def run_ffmpeg():
@@ -223,7 +272,7 @@ def create_clip():
             "-to", end,
             "-i", source,
             "-c", "copy",
-            "-map", "0",
+            *map_args,
             output_path
         ]
         try:
