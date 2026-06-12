@@ -268,10 +268,11 @@ def create_clip():
     def run_ffmpeg():
         cmd = [
             "ffmpeg", "-y",
+            "-i", source,
             "-ss", start,
             "-to", end,
-            "-i", source,
             "-c", "copy",
+            "-avoid_negative_ts", "make_zero",
             *map_args,
             output_path
         ]
