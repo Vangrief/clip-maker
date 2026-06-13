@@ -302,5 +302,92 @@ def job_status(job_id):
     return jsonify(job)
 
 
+@app.route("/api/trailer/download", methods=["POST"])
+def trailer_download():
+    data = request.json or {}
+    folder = safe_path(data.get("folder", ""))
+    url = (data.get("url") or "").strip()
+
+    if not folder or not os.path.isdir(folder):
+        return jsonify({"error": "Folder not found"}), 400
+    if not url:
+        return jsonify({"error": "URL required"}), 400
+
+    trailers_dir = os.path.join(folder, "trailers")
+    os.makedirs(trailers_dir, exist_ok=True)
+
+    job_id = str(uuid.uuid4())
+    jobs[job_id] = {"status": "running", "progress": "0%"}
+
+    def run_download():
+        try:
+            import yt_dlp
+
+            def hook(d):
+                if d.get("status") == "downloading":
+                    jobs[job_id]["progress"] = (d.get("_percent_str") or "").strip()
+                elif d.get("status") == "finished":
+                    jobs[job_id]["progress"] = "100%"
+
+            ydl_opts = {
+                "format": "bestvideo+bestaudio",
+                "merge_output_format": "mkv",
+                "outtmpl": os.path.join(trailers_dir, "%(title)s.%(ext)s"),
+                "progress_hooks": [hook],
+                "noplaylist": True,
+                "quiet": True,
+                "no_warnings": True,
+            }
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ydl.download([url])
+            jobs[job_id]["status"] = "done"
+        except Exception as e:
+            jobs[job_id]["status"] = "error"
+            jobs[job_id]["error"] = str(e)[-500:]
+
+    threading.Thread(target=run_download, daemon=True).start()
+    return jsonify({"job_id": job_id})
+
+
+@app.route("/api/files")
+def list_files():
+    """List files inside a folder's clips/ and trailers/ subfolders."""
+    folder = safe_path(request.args.get("folder", ""))
+    if not folder or not os.path.isdir(folder):
+        return jsonify({"error": "Folder not found"}), 400
+
+    def list_sub(sub):
+        d = os.path.join(folder, sub)
+        out = []
+        if os.path.isdir(d):
+            for name in sorted(os.listdir(d), key=str.lower):
+                full = os.path.join(d, name)
+                if os.path.isfile(full):
+                    out.append({"name": name, "size": os.path.getsize(full), "path": full})
+        return out
+
+    return jsonify({"clips": list_sub("clips"), "trailers": list_sub("trailers")})
+
+
+@app.route("/api/file", methods=["DELETE"])
+def delete_file():
+    data = request.json or {}
+    path = safe_path(data.get("path", ""))
+    if not path or not os.path.isfile(path):
+        return jsonify({"error": "File not found"}), 404
+
+    # Only files directly inside a clips/ or trailers/ subfolder may be deleted
+    parent = os.path.basename(os.path.dirname(path))
+    if parent not in ("clips", "trailers"):
+        return jsonify({"error": "Only files in clips/ or trailers/ may be deleted"}), 403
+
+    try:
+        os.remove(path)
+    except OSError as e:
+        return jsonify({"error": str(e)}), 500
+
+    return jsonify({"ok": True})
+
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=False)

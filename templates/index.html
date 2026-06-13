@@ -208,10 +208,124 @@
   .clip-panel {
     display: flex;
     flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* Tabs */
+  .tabs {
+    display: flex;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    flex-shrink: 0;
+  }
+  .tab-btn {
+    flex: 1;
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--text-muted);
+    font-family: var(--mono);
+    font-size: 12px;
+    padding: 12px 8px;
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+  }
+  .tab-btn:hover { color: var(--text-dim); }
+  .tab-btn.active {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+    background: var(--surface2);
+  }
+
+  .tab-body {
+    flex: 1;
     overflow-y: auto;
     scrollbar-width: thin;
     scrollbar-color: var(--border) transparent;
+    display: flex;
+    flex-direction: column;
   }
+  .tab-body::-webkit-scrollbar { width: 4px; }
+  .tab-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  .tab-content { display: none; flex-direction: column; }
+  .tab-content.active { display: flex; }
+
+  .tab-section {
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+
+  .folder-context {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 12px 14px;
+  }
+  .folder-path {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--accent);
+    word-break: break-all;
+    margin-top: 4px;
+  }
+
+  .hint code {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 1px 5px;
+    color: var(--accent-dim);
+  }
+
+  /* Managed files */
+  .file-group-title {
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-bottom: 10px;
+  }
+  .managed-list { display: flex; flex-direction: column; gap: 6px; }
+
+  .managed-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 9px 12px;
+  }
+  .managed-name {
+    flex: 1;
+    font-size: 12px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .managed-size {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text-muted);
+    flex-shrink: 0;
+  }
+  .del-btn {
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 4px 8px;
+    cursor: pointer;
+    font-size: 13px;
+    transition: all 0.15s;
+    flex-shrink: 0;
+  }
+  .del-btn:hover { border-color: var(--error); background: rgba(255, 77, 77, 0.08); }
 
   .selected-file-info {
     padding: 16px 24px;
@@ -685,9 +799,18 @@
   <div class="panel clip-panel">
     <div class="panel-header">
       <div class="dot"></div>
-      Clip erstellen
+      Editor
     </div>
 
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="clip" onclick="switchTab('clip')">✂️ Clip erstellen</button>
+      <button class="tab-btn" data-tab="trailer" onclick="switchTab('trailer')">🎬 Trailer</button>
+      <button class="tab-btn" data-tab="verwalten" onclick="switchTab('verwalten')">🗑 Verwalten</button>
+    </div>
+
+    <div class="tab-body">
+    <!-- Tab: Clip erstellen -->
+    <div class="tab-content active" id="tab-clip">
     <div class="selected-file-info">
       <div class="selected-label">Quelldatei</div>
       <div class="selected-name empty" id="selected-display">— Datei auswählen —</div>
@@ -756,6 +879,51 @@
         <span id="status-text"></span>
       </div>
     </div>
+    </div><!-- /tab-clip -->
+
+    <!-- Tab: Trailer -->
+    <div class="tab-content" id="tab-trailer">
+      <div class="tab-section">
+        <div class="folder-context">
+          <div class="selected-label">Zielordner</div>
+          <div class="folder-path" id="trailer-folder">— Ordner im Browser öffnen —</div>
+        </div>
+
+        <div class="field">
+          <label>Video-URL</label>
+          <input type="text" id="trailer-url" placeholder="https://youtube.com/watch?v=...">
+        </div>
+
+        <button class="create-btn" id="trailer-btn" onclick="downloadTrailer()">⬇ Herunterladen</button>
+
+        <div class="status-box" id="trailer-status">
+          <div class="spinner"></div><span></span>
+        </div>
+
+        <div class="hint">Trailer wird in <code>trailers/</code> gespeichert — danach links im Browser auswählbar zum Zuschneiden</div>
+      </div>
+    </div>
+
+    <!-- Tab: Verwalten -->
+    <div class="tab-content" id="tab-verwalten">
+      <div class="tab-section">
+        <div class="folder-context">
+          <div class="selected-label">Ordner</div>
+          <div class="folder-path" id="verwalten-folder">— Ordner im Browser öffnen —</div>
+        </div>
+
+        <div class="file-group">
+          <div class="file-group-title">✂️ Clips</div>
+          <div id="clips-list" class="managed-list"><div class="empty-state">—</div></div>
+        </div>
+
+        <div class="file-group">
+          <div class="file-group-title">🎬 Trailer</div>
+          <div id="trailers-list" class="managed-list"><div class="empty-state">—</div></div>
+        </div>
+      </div>
+    </div>
+    </div><!-- /tab-body -->
   </div>
 </main>
 
@@ -766,6 +934,7 @@
   let segmentStart = 0; // source-seconds offset of the current preview segment
   let audioStreams = [];
   let selectedAudioIndex = null; // absolute stream index of chosen audio track
+  let activeTab = 'clip'; // active right-panel tab
 
   function formatSize(bytes) {
     if (bytes > 1e9) return (bytes / 1e9).toFixed(1) + ' GB';
@@ -779,6 +948,8 @@
     if (data.error) { alert(data.error); return; }
 
     currentPath = data.current;
+    updateFolderContext();
+    if (activeTab === 'verwalten') loadManagedFiles();
 
     // Breadcrumb
     const bc = document.getElementById('breadcrumb');
@@ -1069,6 +1240,154 @@
       if (!v.getAttribute('src')) return; // ignore reset-triggered errors
       showPlayerOverlay('Vorschau nicht abspielbar – Zeiten manuell eingeben', true);
     });
+  }
+
+  // --- Tabs ---
+  function switchTab(tab) {
+    activeTab = tab;
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+    document.querySelectorAll('.tab-content').forEach(c => c.classList.toggle('active', c.id === 'tab-' + tab));
+    updateFolderContext();
+    if (tab === 'verwalten') loadManagedFiles();
+  }
+
+  function updateFolderContext() {
+    const f = currentPath || '— Ordner im Browser öffnen —';
+    document.getElementById('trailer-folder').textContent = f;
+    document.getElementById('verwalten-folder').textContent = f;
+  }
+
+  // --- Trailer download ---
+  function showTrailerStatus(type, text, extra) {
+    const box = document.getElementById('trailer-status');
+    box.className = `status-box ${type}`;
+    if (type === 'running') {
+      box.innerHTML = `<div class="spinner"></div><span>${text}</span>`;
+    } else if (type === 'done') {
+      box.innerHTML = `<span>✓ ${text}</span>`;
+    } else {
+      box.innerHTML = `<span>✗ ${text}</span>${extra ? `<span style="font-size:10px;opacity:0.7;margin-top:4px">${extra}</span>` : ''}`;
+    }
+  }
+
+  async function downloadTrailer() {
+    const url = document.getElementById('trailer-url').value.trim();
+    if (!currentPath) return alert('Kein Ordner ausgewählt — links im Browser einen Ordner öffnen');
+    if (!url) return alert('Video-URL angeben');
+
+    const btn = document.getElementById('trailer-btn');
+    btn.disabled = true;
+    showTrailerStatus('running', 'Trailer wird heruntergeladen…');
+
+    let data;
+    try {
+      const res = await fetch('/api/trailer/download', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ folder: currentPath, url })
+      });
+      data = await res.json();
+    } catch (e) {
+      showTrailerStatus('error', 'Netzwerkfehler', String(e));
+      btn.disabled = false;
+      return;
+    }
+
+    if (data.error) {
+      showTrailerStatus('error', 'Fehler', data.error);
+      btn.disabled = false;
+      return;
+    }
+    pollTrailerJob(data.job_id);
+  }
+
+  function pollTrailerJob(jobId) {
+    const iv = setInterval(async () => {
+      const res = await fetch(`/api/job/${jobId}`);
+      const job = await res.json();
+
+      if (job.status === 'running') {
+        showTrailerStatus('running', `Trailer wird heruntergeladen… ${job.progress || ''}`);
+      } else if (job.status === 'done') {
+        clearInterval(iv);
+        showTrailerStatus('done', 'Trailer gespeichert');
+        document.getElementById('trailer-btn').disabled = false;
+        document.getElementById('trailer-url').value = '';
+        if (currentPath) browse(currentPath); // refresh browser + (if open) manage list
+      } else if (job.status === 'error') {
+        clearInterval(iv);
+        showTrailerStatus('error', 'Download-Fehler', job.error);
+        document.getElementById('trailer-btn').disabled = false;
+      }
+    }, 1000);
+  }
+
+  // --- Verwalten (file management) ---
+  async function loadManagedFiles() {
+    updateFolderContext();
+    if (!currentPath) {
+      renderManagedList('clips-list', []);
+      renderManagedList('trailers-list', []);
+      return;
+    }
+    let data;
+    try {
+      const res = await fetch(`/api/files?folder=${encodeURIComponent(currentPath)}`);
+      data = await res.json();
+    } catch (e) {
+      return;
+    }
+    renderManagedList('clips-list', data.clips || []);
+    renderManagedList('trailers-list', data.trailers || []);
+  }
+
+  function renderManagedList(id, files) {
+    const el = document.getElementById(id);
+    el.innerHTML = '';
+    if (!files.length) {
+      el.innerHTML = '<div class="empty-state">Keine Dateien</div>';
+      return;
+    }
+    files.forEach(f => {
+      const row = document.createElement('div');
+      row.className = 'managed-item';
+
+      const name = document.createElement('span');
+      name.className = 'managed-name';
+      name.textContent = f.name;
+      name.title = f.name;
+
+      const size = document.createElement('span');
+      size.className = 'managed-size';
+      size.textContent = formatSize(f.size);
+
+      const btn = document.createElement('button');
+      btn.className = 'del-btn';
+      btn.textContent = '🗑';
+      btn.title = 'Löschen';
+      btn.onclick = () => deleteFile(f.path, f.name);
+
+      row.append(name, size, btn);
+      el.appendChild(row);
+    });
+  }
+
+  async function deleteFile(path, name) {
+    if (!confirm(`Datei wirklich löschen?\n\n${name}`)) return;
+    let data;
+    try {
+      const res = await fetch('/api/file', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path })
+      });
+      data = await res.json();
+    } catch (e) {
+      alert('Fehler beim Löschen: ' + e);
+      return;
+    }
+    if (data.error) { alert('Fehler: ' + data.error); return; }
+    loadManagedFiles();
   }
 
   // --- Library homepage ---
